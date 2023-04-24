@@ -4,32 +4,33 @@
   (letfn [(helper [ys acc]
             (if (empty? ys)
                 acc
-                (helper (rest ys) (cons (first ys) acc))))]
+                (recur (rest ys) (cons (first ys) acc))))]
     (helper xs ())))
 
 (defn my-map-rec [f xs]
   (letfn [(helper [g ys acc]
             (if (empty? ys)
               (my-reverse acc)
-              (helper g (rest ys) (cons (g (first ys)) acc))))]
+              (recur g (rest ys) (cons (g (first ys)) acc))))]
     (helper f xs ())))
+
+;(defn cart
+;  ([xs ys map-fun]
+;   (letfn [(helper [xs ys acc]
+;             (if (empty? xs)
+;               acc
+;               (recur (rest xs) ys (concat (map-fun (fn [y] (concat (first xs) y)) ys) acc))))]
+;     (helper xs ys ())))
+;  ([xs ys] (cart xs ys my-map-rec)))
 
 (defn cart
   ([xs ys map-fun]
-   (letfn [(helper [xs ys acc]
-             (if (empty? xs)
-               acc
-               (helper (rest xs) ys (concat (map-fun (fn [y] (concat (first xs) y)) ys) acc))))]
-     (helper xs ys ())))
+   (reduce (fn [acc x] (concat (map-fun (fn [y] (concat x y)) ys) acc)) () xs))
   ([xs ys] (cart xs ys my-map-rec)))
 
 (defn all-combinations
   ([n xs cart-fun]
-   (letfn [(helper [n xs acc]
-             (if (= n 1)
-               acc
-               (helper (- n 1) xs (cart-fun acc xs))))]
-     (helper n xs xs)))
+   (reduce (fn [acc _] (cart-fun acc xs)) xs (range (dec n))))
   ([n xs]
    (all-combinations n xs cart)))
 
@@ -37,7 +38,7 @@
   (letfn [(helper [p xs acc]
             (if (empty? xs)
               (my-reverse acc)
-              (helper
+              (recur
                 p
                 (rest xs)
                 (if (p (first xs))
@@ -45,16 +46,21 @@
                    acc))))]
     (helper p xs ())))
 
-(defn have-two-subsequent [s]
-  (letfn [(helper [ys previous]
-            (if (empty? ys)
-              false
-              (if (= previous (first ys))
-                true
-                (helper (rest ys) (first ys)))))]
-    (if (empty? s)
-      false
-      (helper (rest s) (first s)))))
+;(defn have-two-subsequent [s]
+;  (letfn [(helper [ys previous]
+;            (if (empty? ys)
+;              false
+;              (if (= previous (first ys))
+;                true
+;                (recur (rest ys) (first ys)))))]
+;    (if (empty? s)
+;      false
+;      (helper (rest s) (first s)))))
+
+(defn have-two-subsequent
+  [s]
+  (->> (map (fn [x y] [x y]) s (rest s))
+       (reduce (fn [b [x y]] (or b (= x y))) false)))
 
 (defn task
   ([cart-fun n xs]
