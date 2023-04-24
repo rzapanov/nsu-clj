@@ -9,7 +9,7 @@
 
 (defn integration-sequence
   [f step granularity]
-  (let [integrated-segments (map (fn [x] (integrate-seg f x (inc' x) step)) (iterate (fn [x] (+ x granularity)) 0))]
+  (let [integrated-segments (map (fn [x] (integrate-seg f x (+ x granularity) step)) (iterate (fn [x] (+ x granularity)) 0))]
     (map first (iterate (fn [[acc xs]] [(+ acc (first xs)) (rest xs)]) [0.0 integrated-segments]))))
 
 
@@ -17,8 +17,8 @@
   ([f step granularity]
    (let [prefixes (integration-sequence f step granularity)]
      (fn [x]
-       (let [rounded-down (long x)]
-         (+ (nth prefixes rounded-down) (integrate-seg f rounded-down x step))))))
+       (let [rounded-down (long (/ x granularity))]
+         (+ (nth prefixes rounded-down) (integrate-seg f (* rounded-down granularity) x step))))))
   ([f step] (pintegrator f step 1)))
 
 (defn integrator
@@ -54,21 +54,36 @@
   (let [pow2 (fn [x] (* x x))
         pow3 (fn [x] (* x (pow2 x)))
         poly (fn [x] (+ (pow2 x) (- x 1)))
-        close (fn [x y e] (< (abs (- x y)) e))]
-    (let [step 1e-5 e 1e-3
+        close (fn [x y e] (< (abs (- x y)) e))
+        ]
+    (let [step 1e-2 e 1e-2
           pow2int (integrator pow2 step 3)
           polyint (integrator poly step 3)
-          sinint (integrator (fn [x] (Math/sin x)) step 0.2)
-          cl (fn [x y] (close x y e))]
-      (test/is (cl (/ (- (pow3 20) (pow3 -10)) 3) (integrate-seg pow2 -10 20 step)))
-      (test/is (cl (/ (- (pow3 20) (pow3 -10)) 3) (- (pow2int 20) (pow2int -10))))
-      (test/is (let [ub 100]
-                 (cl (pow2int ub) (/ (pow3 ub) 3))))
-      (test/is (let [ub 10]
-                 (cl (polyint ub) (integrate-seg poly 0 ub step))))
-      (test/is (let [ub 18.24]
-                 (cl (polyint ub) (+ (integrate-seg pow2 0 ub step) (integrate-seg (fn [x] (- x 1)) 0 ub step)))))
-      (test/is (cl (sinint Math/PI) 2))
-      (test/is (cl (sinint (- Math/PI)) -2))
-      (test/is (cl (sinint (* 2 Math/PI)) 0))
-      (test/is (cl (integrate-seg (fn [x] (+ (Math/sin x) (poly x))) 0 10 step) (+ (polyint 10) (sinint 10)))))))
+          sinint (integrator (fn [x] (Math/sin x)) step 1)
+          maxpow2'' 2
+          maxsin'' 1
+          maxpoly'' 2
+          eps (fn [a b step m] (* m (* (- b a) step)))
+          test-close (fn [f g a b step m] (close (f a b) (g a b) (eps a b step m)))]
+      (let [delta-pow3 (fn [a b] (/ (- (pow3 b) (pow3 a)) 3))
+            segment-pow2 (fn [a b] (integrate-seg pow2 a b step))
+            integrator-pow2 (fn [a b] (- (pow2int b) (pow2int a)))
+            test-close-pow2 (fn [f g a b] (test-close f g a b step maxpow2''))]
+        (test/is (test-close-pow2 delta-pow3 integrator-pow2 0 23.03057774))
+        (test/is (test-close-pow2 delta-pow3 segment-pow2 -10 20))
+        (test/is (test-close-pow2 delta-pow3 integrator-pow2 -10 20)))
+      (let [seg-poly (fn [a b] (integrate-seg poly a b step))
+            integrator-poly (fn [a b] (- (polyint b) (polyint a)))
+            test-close-poly (fn [a b] (test-close seg-poly integrator-poly a b step maxpoly''))]
+        (test/is (test-close-poly 0 10))
+        (test/is (test-close-poly 0 18.24))
+        (test/is (test-close-poly -3 3)))
+      (let [sin (fn [x] (Math/sin x))
+            seg-sin (fn [a b] (integrate-seg sin a b step))
+            integrator-sin (fn [a b] (- (sinint b) (sinint a)))
+            test-close-sin (fn [a b] (test-close seg-sin integrator-sin a b step maxsin''))
+            test-close-sin' (fn [a b] (test-close integrator-sin (fn [a b] (- (Math/cos a) (Math/cos b))) a b step maxsin''))]
+        (test/is (test-close-sin 0 Math/PI))
+        (test/is (test-close-sin 0 18.24))
+        (test/is (test-close-sin' -3 3))
+        (test/is (test-close-sin' 0 Math/PI))))))
