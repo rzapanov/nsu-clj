@@ -131,8 +131,7 @@
        (translate (rule-translator binary-form-rules))
        (translate (rule-translator elimination-rules))
        (translate (rule-translator negation-propagation-rules))
-       (translate (rule-translator multiplication-rules))
-       ))
+       (translate (rule-translator multiplication-rules))))
 
 (test/deftest dnf-tests
   (test/is (= (inj (variable :x)
