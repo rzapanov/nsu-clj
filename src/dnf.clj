@@ -8,23 +8,26 @@
 (defn variable? [expr]
   (= (first expr) ::var))
 
+(defn const [val]
+  {:pre [(boolean? val)]}
+  (list ::const val))
+
+(defn const? [expr]
+  (= (first expr) ::const))
+
+(defn terminal? [expr]
+  (or (variable? expr) (const? expr)))
+
 (defn variable-name [v]
   (second v))
 
-(defn same-variables? [v1 v2]
-  (and
-    (variable? v1)
-    (variable? v2)
-    (= (variable-name v1)
-       (variable-name v2))))
-
-(defn and [expr & rest]
+(defn and' [expr & rest]
   (cons ::and (cons expr rest)))
 
 (defn and? [expr]
   (= (first expr) ::and))
 
-(defn or [expr & rest]
+(defn or' [expr & rest]
   (cons ::or (cons expr rest)))
 
 (defn or? [expr]
@@ -36,56 +39,151 @@
 (defn inj? [expr]
   (= (first expr) ::inj))
 
-(defn inv [expr]
-  (list ::inv expr))
+(defn ng [expr]
+  (list ::ng expr))
 
-(defn inv? [expr]
-  (= (first expr) ::inv))
-
-(defn get-cons
-  [expr]
-  (let [cs (list
-             [variable? variable]
-             [and? and]
-             [or? or]
-             [inj? inj]
-             [inv? inv])]
-    (some (fn [[p c]] (if (p expr) c false)) cs) expr))
+(defn ng? [expr]
+  (= (first expr) ::ng))
 
 (defn args [expr]
   (rest expr))
 
-(def binary-form-rules
-  (letfn [(transform [bop xs] (reduce (fn [acc x] (bop acc x)) xs))]
-    (list
-      [and? (fn [expr] (->> expr args (transform and)))]
-      [or? (fn [expr] (->> expr args (transform or)))]
-      [inj? (fn [expr] (->> expr args reverse (transform (fn [x y] (inj y x)))))]
-      [any? identity])))
+(defn tpe [expr]
+  (first expr))
 
 (defn translate
-  [expr translator]
-  (->> (translator expr)
-       args
-       (map translator)
-       (fn [x] ((get-cons expr) x))))
+  [translator expr]
+  (let [top (translator expr)
+        top-type (tpe top)
+        top-args (args top)]
+    (if (terminal? top)
+      top
+      (cons top-type
+            (map (fn [x] (translate translator x))
+                 top-args)))))
 
 (defn rule-translator
   [rules]
-  (fn [expr] ((some (fn [[p t]] (if (p expr) t false)) rules) expr)))
+  (fn [expr] (let [transformation (some
+                                    (fn [[p t]] (if (p expr) t false))
+                                    rules)]
+               (transformation expr))))
 
-(println ((get-cons (variable :x)) :z))
-(println ((rule-translator binary-form-rules) (inj (variable :x) (variable :y) (variable :z))))
-(println (translate (inj (variable :x) (variable :y) (variable :z)) (rule-translator binary-form-rules)))
-;(println (translate (inj :x :y :z :q) (rule-translator binary-form-rules)))
+(def binary-form-rules
+  (letfn [(transform [bop xs] (reduce (fn [acc x] (bop acc x)) xs))]
+    (list
+      [and? (fn [expr] (->> expr args (transform and')))]
+      [or? (fn [expr] (->> expr args (transform or')))]
+      [inj? (fn [expr] (->> expr args reverse (transform (fn [x y] (inj y x)))))]
+      [any? identity])))
 
-;(println ((second (nth binary-form-rules 2)) (inj :x :y :z :q)))
-;(println ((fn [expr] (reduce (fn [acc x] (and acc x)) (args expr))) (and :x :y :z :q)))
-;(println ((fn [xs] (->> xs
-;                        reverse
-;                        reverse))) (inj :x :y :z :q))
-;(def only-and-or-neg
-;  (list
-;    [inj? ]
-;    [pred2 transform2]
-;    ...))
+(def elimination-rules
+  (list
+    [inj? (fn [expr] (let [[l r] (args expr)]
+                       (or' (ng l) r)))]
+    [any? identity]))
+
+(def negation-propagation-rules
+  (let [propagation-rules
+        (list
+          [terminal? (fn [expr] (ng expr))]
+          [ng? (fn [expr] (first (args expr)))]
+          [and? (fn [expr] (let [[l r] (args expr)]
+                             (or' (ng l) (ng r))))]
+          [or? (fn [expr] (let [[l r] (args expr)]
+                            (and' (ng l) (ng r))))]
+          [any? (fn [x] (throw (concat x "should not reach here @ propagation rules")))])]
+    (list
+      [ng? (fn [expr] (let [sub-expr (first (rest expr))
+                            rule (some
+                                   (fn [[p t]] (if (p sub-expr) t false))
+                                   propagation-rules)]
+                        (rule sub-expr)))]
+      [any? identity])))
+
+(defn substitution-rules
+  [var new-val]
+  {:pre [(variable? var)]}
+  (list
+    [variable? (fn [expr] (if (= (variable-name var) (variable-name expr))
+                            new-val
+                            expr))]
+    [any? identity]))
+
+(def multiplication-rules
+  (list
+    [and? (fn [expr]
+            (let [[l r] (args expr)]
+              (if (or? l)
+                (let [[cl cr] (args l)] (or'
+                                          (and' cl r)
+                                          (and' cr r)))
+                (if (or? r)
+                  (let [[cl cr] (args r)] (or'
+                                            (and' l cl)
+                                            (and' l cr)))
+                  expr))))]
+    [any? identity]))
+
+(defn translate-whole
+  [expr]
+  (->> expr
+       (translate (rule-translator binary-form-rules))
+       (translate (rule-translator elimination-rules))
+       (translate (rule-translator negation-propagation-rules))
+       (translate (rule-translator multiplication-rules))
+       ))
+
+(test/deftest dnf-tests
+  (test/is (= (inj (variable :x)
+                   (inj (variable :y)
+                        (variable :z)))
+              (translate
+                (rule-translator binary-form-rules)
+                (inj (variable :x)
+                     (variable :y)
+                     (variable :z)))))
+  (test/is (= (or' (ng (variable :x))
+                   (variable :y))
+              (translate
+                (rule-translator elimination-rules)
+                (inj (variable :x)
+                     (variable :y)))))
+  (test/is (= (translate
+                (rule-translator negation-propagation-rules)
+                (ng (and' (variable :x)
+                          (variable :y))))
+              (or' (ng (variable :x))
+                   (ng (variable :y)))))
+  (test/is (= (translate
+                (rule-translator negation-propagation-rules)
+                (ng (ng (ng (variable :x)))))
+              (ng (variable :x))))
+  (test/is (= (translate
+                (rule-translator negation-propagation-rules)
+                (ng (and' (ng (variable :x))
+                          (ng (variable :y)))))
+              (or' (variable :x) (variable :y))))
+  (test/is (= (translate
+                (rule-translator (substitution-rules (variable :x) (const false)))
+                (and' (variable :x) (const true)))
+              (and' (const false) (const true))))
+  (test/is (= (translate-whole (ng (inj (variable :x)
+                                        (variable :y)
+                                        (variable :z))))
+              (and' (variable :x)
+                    (and' (variable :y)
+                          (ng (variable :z))))))
+  (let [x (variable :x)
+        y (variable :y)
+        z (variable :z)
+        w (variable :w)
+        nx (ng x)
+        ny (ng y)
+        nz (ng z)
+        nw (ng w)] (test/is (= (translate-whole (ng (or' (and' x y)
+                                                         (and' z w))))
+                               (or' (or' (and' nx nz)
+                                         (and' nx nw))
+                                    (or' (and' ny nz)
+                                         (and' ny nw)))))))
