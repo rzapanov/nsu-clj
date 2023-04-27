@@ -1,5 +1,6 @@
 (ns lazy-filter
-  (:require [primes :as PS]))
+  (:require [primes :as PS])
+  (:require [clojure.test :as test]))
 
 (defn gen-filter
   [granularity parallelism]
@@ -76,3 +77,11 @@
 (println (time (take-drop 10000 (construct-primes-parallel ()))))
 (println (time (take-drop 10000 (construct-primes-single ()))))
 (println (time (take-drop 10000 (construct-primes-parallel ()))))
+
+(test/deftest filter-tests
+  (let [nats (iterate inc' 0)
+        fs (take 10000 nats)]
+    (test/is (= (filter even? fs) (my-filter even? fs)))
+    (test/is (= (filter odd? fs) (my-filter odd? fs)))
+    (let [pred (fn [x] (= (mod x 7) 0))]
+      (test/is (= (filter pred fs) (my-filter pred fs))))))
