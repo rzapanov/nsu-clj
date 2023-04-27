@@ -35,7 +35,7 @@
 ;(println (let [my-filter (gen-filter 16 4)
 ;               evens (my-filter even? (take 1000 (iterate inc' 0)))]
 ;           (println (take 1238 evens) "@@@")))
-;
+
 (def my-filter (gen-filter 1024 4))
 
 (defn primes-to
@@ -57,11 +57,11 @@
        (list (rest ps-to-bound) bound next-count)))))
 
 (defn construct-primes-single
-  [x]
+  [_]
   (map (fn [x] (first (nth x 0))) (iterate PS/step (list (PS/primes-to 10) 10 0))))
 
 (defn construct-primes-parallel
-  [x]
+  [_]
   (map (fn [x] (first (nth x 0))) (iterate step (list (primes-to 10) 10 0))))
 
 (defn take-drop
