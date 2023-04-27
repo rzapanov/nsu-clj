@@ -5,33 +5,28 @@
 (defn gen-filter
   [granularity parallelism]
   {:pre [(and (integer? granularity) (integer? parallelism))]}
-  (letfn [(my-filter [pred coll]
-            (let [g granularity
-                  by-blocks' (iterate (fn [[_ y]]
-                                        [(take g y) (drop g y)])
-                                      [(take g coll) (drop g coll)])
-                  by-blocks (map (fn [[x _]] x) by-blocks')]
-              (letfn [(my-filter' [by-blocks]
-                        (let [fs (doall (take parallelism by-blocks))
-                              rfs (drop parallelism by-blocks)
-                              futures (doall (map
-                                               (fn [f] (future
-                                                         (doall (filter pred f))))
-                                               (rest fs)))
-                              get-futures (cons (filter pred (first fs))
-                                                (map (fn [f] @f) futures))
-                              head (reduce concat get-futures)]
-                          (cons head (lazy-seq (my-filter' rfs)))))]
-                (let [filtered-blocks (my-filter' by-blocks)]
-                  (take-while (fn [x] (not (nil? x)))
-                              (map (fn [[_ x]] (first x))
-                                   (iterate (fn [[blocks seq]]
-                                              (let [next-seq (rest seq)]
-                                                (if (empty? next-seq)
-                                                  [(rest blocks) (first blocks)]
-                                                  [blocks next-seq])))
-                                            [(rest filtered-blocks) (first filtered-blocks)])))))))]
-    my-filter))
+  (fn [pred coll]
+    (letfn [(my-filter' [by-blocks]
+              (let [fs (doall (take parallelism by-blocks))]
+                (cons (->> (rest fs)                        ; calculate (first fs) on current thread
+                           (map (fn [f] (future (doall (filter pred f)))))
+                           (doall)
+                           (map (fn [f] @f))
+                           (cons (filter pred (first fs)))
+                           (reduce concat))
+                      (lazy-seq (my-filter' (drop parallelism by-blocks))))))]
+      (let [filtered-blocks (my-filter'
+                              (->> [(take granularity coll) (drop granularity coll)]
+                                   (iterate (fn [[_ y]] [(take granularity y) (drop granularity y)]))
+                                   (map (fn [[x _]] x))))]
+        (take-while (fn [x] (not (nil? x)))
+                    (->> [(rest filtered-blocks) (first filtered-blocks)]
+                         (iterate (fn [[blocks seq]]
+                                    (let [next-seq (rest seq)]
+                                      (if (empty? next-seq)
+                                        [(rest blocks) (first blocks)]
+                                        [blocks next-seq]))))
+                         (map (fn [[_ x]] (first x)))))))))
 
 ;(println (let [my-filter (gen-filter 16 4)
 ;               evens (my-filter even? (take 1000 (iterate inc' 0)))]
