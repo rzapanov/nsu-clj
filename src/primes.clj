@@ -6,7 +6,11 @@
             (let [p (first cs)]
               (if (> p (Math/sqrt n))
                 cs
-                (cons p (lazy-seq (next-prime (filter (fn [x] (not (= 0 (mod x p)))) cs)))))))]
+                (cons p (lazy-seq (next-prime (filter
+                                                (fn [x]
+                                                  (Thread/sleep 1)
+                                                  (not (= 0 (mod x p))))
+                                                cs)))))))]
     (next-prime (range 2 (inc n)))))
 
 (defn step
