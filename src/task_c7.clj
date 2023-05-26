@@ -52,6 +52,14 @@
 (defn data
   [c] (nth c 3))
 
+(defn skew-merge
+  [l r]
+  (if (nil? l)
+    r (if (nil? r)
+        l (if (>= (key l) (key r))
+            (recur r l)
+            [(key l) (skew-merge r (right-child l)) (left-child l)]))))
+
 (defn meld-heap
   [l r rnd]
   (let [min (fn [x y] (if (< (key x) (key y)) x y))
