@@ -48,13 +48,37 @@
       (alter phil (fn [[name forks _ food]] [name forks false food]))
       (doseq [f (forks phil)] (alter f not)))))
 
-(defn try-eat-with-back-off [phil eat-time thinking-time]
+(defn try-eat-with-back-off-old [phil eat-time thinking-time]
   (while (pos? (eating-attempts phil))
     (if (start-eating phil)
       (do (Thread/sleep eat-time)
           (stop-eating phil)
           (Thread/sleep thinking-time))
       (Thread/yield))))
+
+(def tcnt
+  (atom 0))
+
+(defn try-eat-with-back-off [phil eat-time thinking-time]
+  (while (pos? (eating-attempts phil))
+    (let [fks (forks phil)
+          l (first fks)
+          r (second fks)
+          set-false (fn [_] false)
+          set-true (fn [_] true)]
+      (dosync
+        (do (swap! tcnt inc)
+            (while (not (deref l))
+              (Thread/sleep thinking-time))
+            (alter l set-false)
+            (while (not (deref r))
+              (Thread/sleep thinking-time))
+            (alter r set-false)
+            (Thread/sleep eat-time)
+            (alter phil (fn [[name forks state food]]
+                          [name forks state (dec food)]))
+            (alter l set-true)
+            (alter r set-true))))))
 
 (def eating-attempts-const 100)
 (def eat-time-const 4)
@@ -81,5 +105,6 @@
 
 (doall (map (fn [x] @x) (start)))
 
+(println @tcnt)
 (println @g-eat-cnt @g-eat-cnt-with-forks @g-stop-eat-cnt)
 
